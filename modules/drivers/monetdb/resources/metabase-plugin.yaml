@@ -1,0 +1,34 @@
+info:
+  name: Metabase MonetDB Driver
+  version: 1.0.0-SNAPSHOT-1.0.0-jre8
+  description: Allows Metabase to connect to MonetDB databases.
+driver:
+  name: monetdb
+  display-name: MonetDB
+  lazy-load: true
+  parent: sql-jdbc
+  connection-properties:
+    - host
+    - merge:
+        - port
+        - placeholder: 50000
+    - merge:
+        - dbname
+        - name: db
+          placeholder: BirdsOfTheWorld
+    - name: instance
+      display-name: Database instance name
+      placeholder: N/A
+    - user:
+      - placeholder: monetdb
+    - password
+    - ssl
+    - merge:
+        - additional-options
+        - placeholder: "trustServerCertificate=false"
+  connection-properties-include-tunnel-config: true
+init:
+  - step: load-namespace
+    namespace: metabase.driver.monetdb
+  - step: register-jdbc-driver
+    class: nl.cwi.monetdb.jdbc.MonetDriver
