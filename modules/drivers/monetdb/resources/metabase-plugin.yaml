@@ -19,8 +19,7 @@ driver:
     - name: instance
       display-name: Database instance name
       placeholder: N/A
-    - user:
-      - placeholder: monetdb
+    - user
     - password
     - ssl
     - merge:

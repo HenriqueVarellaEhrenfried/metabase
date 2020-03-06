@@ -8,6 +8,7 @@
             [honeysql.core :as hsql]
             [java-time :as t]
             [metabase
+            [config :as config]
              [driver :as driver]
              [util :as u]]
             [metabase.db.spec :as dbspec]
@@ -247,25 +248,35 @@
    :useCompression       true})
 
 (defmethod sql-jdbc.conn/connection-details->spec :monetdb
-  [_ {ssl? :ssl, :keys [additional-options], :as details}]
-  ;; In versions older than 0.32.0 the MySQL driver did not correctly save `ssl?` connection status. Users worked
-  ;; around this by including `useSSL=true`. Check if that's there, and if it is, assume SSL status. See #9629
-  ;;
-  ;; TODO - should this be fixed by a data migration instead?
-  (let [ssl? (or ssl? (some-> additional-options (str/includes? "useSSL=true")))]
-    (when (and ssl?
-               (not (some->  additional-options (str/includes? "trustServerCertificate"))))
-      (log/info (trs "You may need to add 'trustServerCertificate=true' to the additional connection options to connect with SSL.")))
-    (merge
-     default-connection-args
-     ;; newer versions of MySQL will complain if you don't specify this when not using SSL
-     {:useSSL (boolean ssl?)}
-     (let [details (-> details
-                       (set/rename-keys {:dbname :db})
-                       (dissoc :ssl))]
-    ;    (-> (dbspec/monetdb details)
-    ;        (sql-jdbc.common/handle-additional-options details))
-           ))))
+  [_ {:keys [user password db host port instance domain ssl]
+      :or   {user "monetdb", password "monetdb", db "", host "localhost", port "50000"}
+      :as   details}]
+  (-> {:applicationName    config/mb-app-id-string
+       :subprotocol        "monetdb"
+       ;; it looks like the only thing that actually needs to be passed as the `subname` is the host; everything else
+       ;; can be passed as part of the Properties
+       :subname            (str "//" host)
+       ;; everything else gets passed as `java.util.Properties` to the JDBC connection.  (passing these as Properties
+       ;; instead of part of the `:subname` is preferable because they support things like passwords with special
+       ;; characters)
+       :database           db
+       :password           password
+       ;; Wait up to 10 seconds for connection success. If we get no response by then, consider the connection failed
+       :loginTimeout       10
+       ;; apparently specifying `domain` with the official SQLServer driver is done like `user:domain\user` as opposed
+       ;; to specifying them seperately as with jTDS see also:
+       ;; https://social.technet.microsoft.com/Forums/sqlserver/en-US/bc1373f5-cb40-479d-9770-da1221a0bc95/connecting-to-sql-server-in-a-different-domain-using-jdbc-driver?forum=sqldataaccess
+       :user               (str (when domain (str domain "\\"))
+                                user)
+       :instanceName       instance
+       :encrypt            (boolean ssl)
+       ;; only crazy people would want this. See https://docs.microsoft.com/en-us/sql/connect/jdbc/configuring-how-java-sql-time-values-are-sent-to-the-server?view=sql-server-ver15
+       :sendTimeAsDatetime false}
+       :port port
+      ;; only include `port` if it is specified; leave out for dynamic port: see
+      ;; https://github.com/metabase/metabase/issues/7597
+    ;   (merge (when port {:port port}))
+      (sql-jdbc.common/handle-additional-options details, :seperator-style :semicolon)))
 
 (defmethod sql-jdbc.sync/active-tables :monetdb
   [& args]
