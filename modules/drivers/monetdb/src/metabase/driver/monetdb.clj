@@ -203,42 +203,84 @@
 
 (defmethod sql-jdbc.sync/database-type->base-type :monetdb
   [_ database-type]
-  ({:BIGINT     :type/BigInteger
-    :BINARY     :type/*
-    :HUGEINT    :type/BigInteger ;;Added
+  ({
+    :HUGEINT    :type/BigInteger  ;;Added
     :hugeint    :type/BigInteger  ;;Added
-    :double     :type/Float       ;;Added
-    :float      :type/Float       ;;Added
-    :varchar    :type/Text        ;;Added
-    :BIT        :type/Boolean
-    :BLOB       :type/*
-    :CHAR       :type/Text
-    :DATE       :type/Date
-    :DATETIME   :type/DateTime
-    :DECIMAL    :type/Decimal
-    :DOUBLE     :type/Float
-    :ENUM       :type/*
-    :FLOAT      :type/Float
-    :INT        :type/Integer
-    :INTEGER    :type/Integer
-    :LONGBLOB   :type/*
-    :LONGTEXT   :type/Text
-    :MEDIUMBLOB :type/*
+    :BIGINT     :type/BigInteger
+    :bigint     :type/BigInteger  ;;Added
     :MEDIUMINT  :type/Integer
-    :MEDIUMTEXT :type/Text
-    :NUMERIC    :type/Decimal
-    :REAL       :type/Float
-    :SET        :type/*
+    :mediumint  :type/Integer
+    :INT        :type/Integer
+    :int        :type/Integer     ;;Added
+    :INTEGER    :type/Integer
+    :integer    :type/Integer     ;;Added
     :SMALLINT   :type/Integer
-    :TEXT       :type/Text
-    :TIME       :type/Time
-    :TIMESTAMP  :type/DateTimeWithLocalTZ ; stored as UTC in the database
-    :TINYBLOB   :type/*
+    :smallint   :type/Integer     ;;Added
     :TINYINT    :type/Integer
-    :TINYTEXT   :type/Text
-    :VARBINARY  :type/*
+    :tinyint    :type/Integer     ;;Added
+    :DOUBLE     :type/Float
+    :double     :type/Float       ;;Added
+    :FLOAT      :type/Float
+    :float      :type/Float       ;;Added
+    :DECIMAL    :type/Decimal
+    :decimal    :type/Decimal     ;;Added
+    :DEC        :type/Decimal     ;;Added
+    :dec        :type/Decimal     ;;Added
+    :REAL       :type/Float
+    :real       :type/Float       ;;Added
+    :NUMERIC    :type/Decimal
+    :numeric    :type/Decimal     ;;Added
+    :CHAR       :type/Text
+    :char       :type/Text        ;;Added
     :VARCHAR    :type/Text
-    :YEAR       :type/Integer}
+    :varchar    :type/Text        ;;Added
+    :STRING     :type/Text        ;;Added
+    :string     :type/Text        ;;Added
+    :CHARACTER  :type/Text        ;;Added
+    :character  :type/Text        ;;Added
+    :CLOB       :type/Text        ;;Added
+    :clob       :type/Text        ;;Added
+    :TEXT       :type/Text
+    :text       :type/Text
+    :LONGTEXT   :type/Text
+    :longtext   :type/Text        ;;Added
+    :MEDIUMTEXT :type/Text        
+    :mediumtext :type/Text        ;;Added
+    :TINYTEXT   :type/Text        
+    :tinytext   :type/Text        ;;Added
+    :BOOLEAN    :type/Boolean     ;;Added
+    :boolean    :type/Boolean     ;;Added
+    :BOOL       :type/Boolean     ;;Added
+    :bool       :type/Boolean     ;;Added
+    :BIT        :type/Boolean
+    :bit        :type/Boolean     ;;Added
+    :BINARY     :type/*
+    :binary     :type/*           ;;Added
+    :BLOB       :type/*           
+    :blob       :type/*           ;;Added
+    :LONGBLOB   :type/*
+    :longblob   :type/*           ;;Added
+    :MEDIUMBLOB :type/*
+    :mediumblob :type/*           ;;Added
+    :TINYBLOB   :type/*
+    :tinyblob   :type/*           ;;Added
+    :DATE       :type/Date
+    :date       :type/Date        ;;Added
+    :DATETIME   :type/DateTime    
+    :datetime   :type/DateTime    ;;Added
+    :TIMESTAMP  :type/DateTimeWithLocalTZ ; stored as UTC in the database
+    :timestamp  :type/DateTimeWithLocalTZ ; stored as UTC in the database - Added
+    :TIME       :type/Time
+    :time       :type/Time        ;;Added
+    :VARBINARY  :type/*           
+    :varbinary  :type/*           ;;Added
+    :ENUM       :type/*
+    :enum       :type/*           ;;Added
+    :SET        :type/*
+    :set        :type/*           ;;Added
+    :YEAR       :type/Integer
+    :year       :type/Integer     ;;Added
+   }
    ;; strip off " UNSIGNED" from end if present
    (keyword (str/replace (name database-type) #"\sUNSIGNED$" ""))))
 
@@ -317,7 +359,7 @@
 ;;
 (defmethod sql-jdbc.execute/set-timezone-sql :monetdb
   [_]
-  "SET @@session.time_zone = %s;")
+  "SET TIME ZONE INTERVAL %s HOUR TO MINUTE;")
 
 (defmethod sql-jdbc.execute/set-parameter [:monetdb OffsetTime]
   [driver ps i t]
