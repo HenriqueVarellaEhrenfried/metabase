@@ -8,7 +8,6 @@
             [honeysql.core :as hsql]
             [java-time :as t]
             [metabase
-            [config :as config]
              [driver :as driver]
              [util :as u]]
             [metabase.db.spec :as dbspec]
@@ -30,22 +29,29 @@
 
 (driver/register! :monetdb, :parent :sql-jdbc)
 
+(def ^:private ^:const min-supported-mysql-version 5.7)
+(def ^:private ^:const min-supported-mariadb-version 10.2)
 
 (defmethod driver/display-name :monetdb [_] "MonetDB")
-
 
 ;;; +----------------------------------------------------------------------------------------------------------------+
 ;;; |                                             metabase.driver impls                                              |
 ;;; +----------------------------------------------------------------------------------------------------------------+
 
+; (defn- mariadb? [^DatabaseMetaData metadata]
+;   (= (.getDatabaseProductName metadata) "MariaDB"))
+
+; (defn- db-version [^DatabaseMetaData metadata]
+;   (Double/parseDouble
+;    (format "%d.%d" (.getDatabaseMajorVersion metadata) (.getDatabaseMinorVersion metadata))))
+
+; (defn- unsupported-version? [^DatabaseMetaData metadata]
+;   (< (db-version metadata)
+;      (if (mariadb? metadata) min-supported-mariadb-version min-supported-mysql-version)))
+
 (defn- warn-on-unsupported-versions [driver details]
   (let [jdbc-spec (sql-jdbc.conn/details->connection-spec-for-testing-connection driver details)]
-    (jdbc/with-db-metadata [metadata jdbc-spec])))
-
-(defn- db-version [^DatabaseMetaData metadata]
-  (Double/parseDouble
-   (format "%d.%d" (.getDatabaseMajorVersion metadata) (.getDatabaseMinorVersion metadata))))
-
+    (trs "Cannot connect")))
 
 (defmethod driver/can-connect? :monetdb
   [driver details]
@@ -138,10 +144,10 @@
 (defn- str-to-date [format-str expr] (hsql/call :str_to_date expr (hx/literal format-str)))
 
 
-; (defmethod sql.qp/->float :monetdb
-;   [_ value]
-;   ;; no-op as MySQL doesn't support cast to float
-;   value)
+(defmethod sql.qp/->float :monetdb
+  [_ value]
+  ;; no-op as MySQL doesn't support cast to float
+  value)
 
 
 ;; Since MySQL doesn't have date_trunc() we fake it by formatting a date to an appropriate string and then converting
@@ -198,12 +204,12 @@
 (defmethod sql-jdbc.sync/database-type->base-type :monetdb
   [_ database-type]
   ({:BIGINT     :type/BigInteger
+    :BINARY     :type/*
     :HUGEINT    :type/BigInteger ;;Added
     :hugeint    :type/BigInteger  ;;Added
     :double     :type/Float       ;;Added
     :float      :type/Float       ;;Added
     :varchar    :type/Text        ;;Added
-    :BINARY     :type/*
     :BIT        :type/Boolean
     :BLOB       :type/*
     :CHAR       :type/Text
@@ -226,7 +232,7 @@
     :SMALLINT   :type/Integer
     :TEXT       :type/Text
     :TIME       :type/Time
-    :TIMESTAMP  :type/DateTime ; stored as UTC in the database
+    :TIMESTAMP  :type/DateTimeWithLocalTZ ; stored as UTC in the database
     :TINYBLOB   :type/*
     :TINYINT    :type/Integer
     :TINYTEXT   :type/Text
@@ -237,7 +243,7 @@
    (keyword (str/replace (name database-type) #"\sUNSIGNED$" ""))))
 
 (def ^:private default-connection-args
-  "Map of args for the MonetDB JDBC connection string."
+  "Map of args for the MySQL/MariaDB JDBC connection string."
   { ;; 0000-00-00 dates are valid in MySQL; convert these to `null` when they come back because they're illegal in Java
    :zeroDateTimeBehavior "convertToNull"
    ;; Force UTF-8 encoding of results
@@ -248,35 +254,50 @@
    :useCompression       true})
 
 (defmethod sql-jdbc.conn/connection-details->spec :monetdb
-  [_ {:keys [user password db host port instance domain ssl]
-      :or   {user "monetdb", password "monetdb", db "", host "localhost", port "50000"}
-      :as   details}]
-  (-> {:applicationName    config/mb-app-id-string
-       :subprotocol        "monetdb"
-       ;; it looks like the only thing that actually needs to be passed as the `subname` is the host; everything else
-       ;; can be passed as part of the Properties
-       :subname            (str "//" host)
-       ;; everything else gets passed as `java.util.Properties` to the JDBC connection.  (passing these as Properties
-       ;; instead of part of the `:subname` is preferable because they support things like passwords with special
-       ;; characters)
-       :database           db
-       :password           password
-       ;; Wait up to 10 seconds for connection success. If we get no response by then, consider the connection failed
-       :loginTimeout       10
-       ;; apparently specifying `domain` with the official SQLServer driver is done like `user:domain\user` as opposed
-       ;; to specifying them seperately as with jTDS see also:
-       ;; https://social.technet.microsoft.com/Forums/sqlserver/en-US/bc1373f5-cb40-479d-9770-da1221a0bc95/connecting-to-sql-server-in-a-different-domain-using-jdbc-driver?forum=sqldataaccess
-       :user               (str (when domain (str domain "\\"))
-                                user)
-       :instanceName       instance
-       :encrypt            (boolean ssl)
-       ;; only crazy people would want this. See https://docs.microsoft.com/en-us/sql/connect/jdbc/configuring-how-java-sql-time-values-are-sent-to-the-server?view=sql-server-ver15
-       :sendTimeAsDatetime false}
-       :port port
-      ;; only include `port` if it is specified; leave out for dynamic port: see
-      ;; https://github.com/metabase/metabase/issues/7597
-    ;   (merge (when port {:port port}))
-      (sql-jdbc.common/handle-additional-options details, :seperator-style :semicolon)))
+   ;; jdbc:monetdb://host:port/database_name
+
+   [_ {:keys [user password db host port ssl]
+       :or {user "monetdb", password "monetdb", db "", host "localhost", port "50000"}
+       :as opts}]
+   (merge {
+     :classname "nl.cwi.monetdb.jdbc.MonetDriver" ; must be in classpath
+     :subprotocol "monetdb"
+     :subname (str "//" host ":" port "/" db)
+     :dbname           db
+     :password           password
+     :user               user
+     :encrypt            (boolean ssl)
+     :delimiters "`"}
+   
+     (dissoc opts :host :port :db)))
+
+
+   ; [_ {:keys [user password db host port ssl]
+   ;     :or   {user "monetdb", password "monetdb", db "", host "localhost", port "50000"}
+   ;     :as   details}]
+   ; (-> {:applicationName    config/mb-app-id-string
+   ;      :classname "nl.cwi.monetdb.jdbc.MonetDriver"
+   ;      :subprotocol        "monetdb"
+   ;      ;; it looks like the only thing that actually needs to be passed as the `subname` is the host; everything else
+   ;      ;; can be passed as part of the Properties
+   ;      :subname            (str "//" host ":" port "/" db)
+   ;      ;; everything else gets passed as `java.util.Properties` to the JDBC connection.  (passing these as Properties
+   ;      ;; instead of part of the `:subname` is preferable because they support things like passwords with special
+   ;      ;; characters)
+   ;      :database           db
+   ;      :password           password
+   ;      ;; Wait up to 10 seconds for connection success. If we get no response by then, consider the connection failed
+   ;      :loginTimeout       10
+   ;      ;; apparently specifying `domain` with the official SQLServer driver is done like `user:domain\user` as opposed
+   ;      ;; to specifying them seperately as with jTDS see also:
+   ;      ;; https://social.technet.microsoft.com/Forums/sqlserver/en-US/bc1373f5-cb40-479d-9770-da1221a0bc95/connecting-to-sql-server-in-a-different-domain-using-jdbc-driver?forum=sqldataaccess
+   ;      :user               user
+   ;      :encrypt            (boolean ssl)
+   ;      ;; only crazy people would want this. See https://docs.microsoft.com/en-us/sql/connect/jdbc/configuring-how-java-sql-time-values-are-sent-to-the-server?view=sql-server-ver15
+   ;      :sendTimeAsDatetime false}
+   ;     ;; only include `port` if it is specified; leave out for dynamic port: see
+   ;     ;; https://github.com/metabase/metabase/issues/7597
+   ;     (sql-jdbc.common/handle-additional-options details, :seperator-style :semicolon)))
 
 (defmethod sql-jdbc.sync/active-tables :monetdb
   [& args]

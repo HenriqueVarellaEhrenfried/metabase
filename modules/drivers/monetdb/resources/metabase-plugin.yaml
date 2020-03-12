@@ -16,9 +16,6 @@ driver:
         - dbname
         - name: db
           placeholder: BirdsOfTheWorld
-    - name: instance
-      display-name: Database instance name
-      placeholder: N/A
     - user
     - password
     - ssl
