@@ -103,29 +103,14 @@
 (defmethod driver/db-default-timezone :monetdb
   [_ db]
   (let [spec                             (sql-jdbc.conn/db->pooled-connection-spec db)
-        sql                              (str "SELECT @@GLOBAL.time_zone AS global,"
-                                              " @@system_time_zone AS system,"
-                                              " time_format("
-                                              "   timediff(now(), convert_tz(now(), @@GLOBAL.time_zone, '+00:00')),"
-                                              "  '%H:%i'"
-                                              " ) AS offset;")
+        sql                              (str "SELECT NOW;")
         [{:keys [global system offset]}] (jdbc/query spec sql)
         the-valid-id                     (fn [zone-id]
                                            (when zone-id
                                              (try
                                                (.getId (t/zone-id zone-id))
                                                (catch Throwable _))))]
-    (or
-     ;; if global timezone ID is 'SYSTEM', then try to use the system timezone ID
-     (when (= global "SYSTEM")
-       (the-valid-id system))
-     ;; otherwise try to use the global ID
-     (the-valid-id global)
-     ;; failing that, calculate the offset between now in the global timezone and now in UTC. Non-negative offsets
-     ;; don't come back with `+` so add that if needed
-     (if (str/starts-with? offset "-")
-       offset
-       (str \+ offset)))))
+    ))
 
 ;; MySQL LIKE clauses are case-sensitive or not based on whether the collation of the server and the columns
 ;; themselves. Since this isn't something we can really change in the query itself don't present the option to the
@@ -357,9 +342,9 @@
 ;;
 ;; See https://dev.mysql.com/doc/refman/5.7/en/time-zone-support.html for details
 ;;
-(defmethod sql-jdbc.execute/set-timezone-sql :monetdb
-  [_]
-  "SET TIME ZONE INTERVAL %s HOUR TO MINUTE;")
+(defmethod sql-jdbc.execute/set-timezone-sql [:monetdb OffsetTime]
+  [datetime]
+  "SET TIME ZONE INTERVAL %s HOUR TO MINUTE;", (t/zone-offset datetime))
 
 (defmethod sql-jdbc.execute/set-parameter [:monetdb OffsetTime]
   [driver ps i t]
