@@ -360,12 +360,19 @@
 
 (deftest databases-list-include-saved-questions-test
   (testing "GET /api/database?saved=true"
-    (testing "We should be able to include the saved questions virtual DB (without Tables) with the param ?saved=true"
-      (is (= {:name               "Saved Questions"
-              :id                 mbql.s/saved-questions-virtual-database-id
-              :features           ["basic-aggregations"]
-              :is_saved_questions true}
-             (last ((mt/user->client :lucky) :get 200 "database?saved=true")))))))
+    (mt/with-temp* [Card [card (assoc (card-with-native-query "Some Card")
+                                      :result_metadata [{:name "col_name"}])]]
+      (testing "We should be able to include the saved questions virtual DB (without Tables) with the param ?saved=true"
+        (is (= {:name               "Saved Questions"
+                :id                 mbql.s/saved-questions-virtual-database-id
+                :features           ["basic-aggregations"]
+                :is_saved_questions true}
+               (last ((mt/user->client :lucky) :get 200 "database?saved=true"))))))
+
+    (testing "We should not include the saved questions virtual DB if there aren't any cards"
+      (not-any?
+       :is_saved_questions
+       ((mt/user->client :lucky) :get 200 "database?saved=true")))))
 
 (deftest databases-list-include-saved-questions-tables-test
   ;; `?saved=true&include=tables` and `?include_cards=true` mean the same thing, so test them both
@@ -670,14 +677,6 @@
         (is (= ["schema1" "schema2" "schema3"]
                ((mt/user->client :rasta) :get 200 (format "database/%d/schemas" db-id))))))
 
-    (testing "Can we fetch the Tables in a Schema? (If we have full DB perms)"
-      (mt/with-temp* [Database [{db-id :id}]
-                      Table    [_ {:db_id db-id, :schema "schema1", :name "t1"}]
-                      Table    [_ {:db_id db-id, :schema "schema2"}]
-                      Table    [_ {:db_id db-id, :schema "schema1", :name "t3"}]]
-        (is (= ["t1" "t3"]
-               (map :name ((mt/user->client :rasta) :get 200 (format "database/%d/schema/%s" db-id "schema1")))))))
-
     (testing "Looking for a database that doesn't exist should return a 404"
       (is (= "Not found."
              ((mt/user->client :crowberto) :get 404 (format "database/%s/schemas" Integer/MAX_VALUE)))))
@@ -691,7 +690,15 @@
           ((mt/user->client :crowberto) :post 202 (format "card/%d/query" (u/get-id card))))
         (is (= ["Everything else"
                 "My Collection"]
-               ((mt/user->client :lucky) :get 200 (format "database/%d/schemas" mbql.s/saved-questions-virtual-database-id))))))))
+               ((mt/user->client :lucky) :get 200 (format "database/%d/schemas" mbql.s/saved-questions-virtual-database-id))))))
+
+    (testing "null and empty schemas should both come back as blank strings"
+      (mt/with-temp* [Database [{db-id :id}]
+                      Table    [_ {:db_id db-id, :schema ""}]
+                      Table    [_ {:db_id db-id, :schema nil}]
+                      Table    [_ {:db_id db-id, :schema " "}]]
+        (is (= ["" " "]
+               ((mt/user->client :lucky) :get 200 (format "database/%d/schemas" db-id))))))))
 
 (deftest get-schema-tables-test
   (testing "GET /api/database/:id/schema/:schema"
@@ -700,6 +707,10 @@
                       Table    [t1 {:db_id db-id, :schema "schema1", :name "t1"}]
                       Table    [t2 {:db_id db-id, :schema "schema2"}]
                       Table    [t3 {:db_id db-id, :schema "schema1", :name "t3"}]]
+        (testing "if we have full DB perms"
+          (is (= ["t1" "t3"]
+                 (map :name ((mt/user->client :rasta) :get 200 (format "database/%d/schema/%s" db-id "schema1"))))))
+
         (testing "if we have full schema perms"
           (perms/revoke-permissions! (perms-group/all-users) db-id)
           (perms/grant-permissions!  (perms-group/all-users) db-id "schema1")
@@ -797,4 +808,11 @@
         (testing "Should throw 404 if the schema/Collection doesn't exist"
           (is (= "Not found."
                  ((mt/user->client :lucky) :get 404
-                  (format "database/%d/schema/Coin Collection" mbql.s/saved-questions-virtual-database-id)))))))))
+                  (format "database/%d/schema/Coin Collection" mbql.s/saved-questions-virtual-database-id)))))))
+
+    (mt/with-temp* [Database [{db-id :id}]
+                    Table    [_ {:db_id db-id, :schema nil, :name "t1"}]
+                    Table    [_ {:db_id db-id, :schema "", :name "t2"}]]
+      (testing "to fetch Tables with `nil` or empty schemas, use the blank string"
+        (is (= ["t1" "t2"]
+               (map :name ((mt/user->client :lucky) :get 200 (format "database/%d/schema/" db-id)))))))))
